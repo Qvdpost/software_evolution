@@ -161,7 +161,7 @@ private map[tuple[int, str], loc] updateLOCLines(map[tuple[int, str], loc] lines
 	return lines;
 }
 
-map[tuple[int, str], loc] getCodeLines(list[Declaration] asts) {
+map[tuple[int, str], loc] getLOC(list[Declaration] asts) {
 	map[tuple[int, str], loc] LOCLines = ();
 	visit(asts){
 		case \Statement ast_node: LOCLines = updateLOCLines(LOCLines, ast_node);
@@ -172,7 +172,7 @@ map[tuple[int, str], loc] getCodeLines(list[Declaration] asts) {
 	return LOCLines;
 }
 
-int getLOC(list[Declaration] asts){
+int getLOCCount(list[Declaration] asts){
 	return size(getCodeLines(asts));
 }
 

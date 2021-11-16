@@ -82,10 +82,12 @@ map[str, set[loc]] getDuplicateBlocks(list[loc] sources, map[str, set[loc]] dupl
 	if (blocks == [])
 		return duplicates;
 		
-	for (block_size <- {size(block) | block <- blocks.code}) {
-		for (tuple[list[str] code, list[loc] locs] block <- blocks) {
+	for (tuple[list[str] code, list[loc] locs] block <- blocks) {
+		//map[str, map[loc, list[tuple[list[str], list[loc]]]]] temp_dups;
+		for (block_size <- [6..size(block.code)+1]) {
 			str code_block = blockToString(block.code[0..block_size]);
 			loc loc_block = cover(block.locs[0..block_size]);
+			
 			if (code_block notin duplicates)
 				duplicates[blockToString(block.code[0..block_size])] = {loc_block};
 			else
@@ -96,7 +98,7 @@ map[str, set[loc]] getDuplicateBlocks(list[loc] sources, map[str, set[loc]] dupl
 	return duplicates;
 }
 
-bool isStrictSuperBlock(loc src, list[loc] others) {
+bool isStrictSuperBlock(loc src, set[loc] others) {
 	for (other <- others) {
 		if (isStrictlyContainedIn(src, other)) {
 			return false;
@@ -105,22 +107,23 @@ bool isStrictSuperBlock(loc src, list[loc] others) {
 	return true;
 }
 
-void getDuplicates(list[Declaration] asts) {
-	// Fetch all lines of code and their locations.
-	println("Fetching code lines");
-	map[tuple[int, str], loc] LOCLines = getCodeLines(asts);
-	
+list[tuple[str, loc]] getCodeLines(map[tuple[int, str], loc] lines) {
 	list[tuple[str, loc]] codeLines = [];
 	println("Trimming and cleaning up");
-	int loclines_count = size(LOCLines);
-	for (locline <- LOCLines) {
+	int loclines_count = size(lines);
+	for (locline <- lines) {
 		if (loclines_count % 1000 == 0)
 			println("<loclines_count> lines to go.");
 		loclines_count -=1;
-		codeLines += <trim(getContent(LOCLines[locline])), LOCLines[locline]>;
-		//if (trim(getContent(LOCLines[locline])) == "}")
-		//	println("<trim(getContent(LOCLines[locline]))> : <LOCLines[locline]>");
+		codeLines += <trim(getContent(lines[locline])), lines[locline]>;
 	}
+	
+	return codeLines;
+}
+
+void getDuplicates(map[tuple[int, str], loc] LOCLines) {
+	
+	list[tuple[str, loc]] codeLines = getCodeLines(LOCLines);
 	
 
 	// Map all lines and occurrences
@@ -180,9 +183,14 @@ void getDuplicates(list[Declaration] asts) {
 	println("Total duplicates: <dup_count>");
 	
 	map[loc, str] duplicate_locs = ();
+	map[str, map[loc, str]] file_block_locs = ();
 	
 	for (codeBlock <- duplicate_blocks) {
 		for (block_loc <- duplicate_blocks[codeBlock]) {
+			if (block_loc.path notin file_block_locs)
+				file_block_locs[block_loc.path] = ();
+				
+			file_block_locs[block_loc.path][block_loc] = codeBlock;
 			duplicate_locs[block_loc] = codeBlock;
 		}
 	}
@@ -193,7 +201,8 @@ void getDuplicates(list[Declaration] asts) {
 		if (block_check_count % 1000 == 0)
 			println("<block_check_count> block checks to go.");
 		block_check_count -= 1;
-		if (!isStrictSuperBlock(block_loc, [key | key <- duplicate_locs])) {
+		
+		if (!isStrictSuperBlock(block_loc, domain(file_block_locs[block_loc.path]))) {
 			duplicate_blocks[duplicate_locs[block_loc]] -= block_loc;
 		}
 	}

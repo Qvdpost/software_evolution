@@ -21,9 +21,13 @@ void main(){
 	//Declaration test_ast = createAstFromFile(test_file, true);
 	//
 	
-	//list[Declaration] test_asts = getASTs(|project://smallsql0.21_src|);
-	list[Declaration] test_asts = getASTs(|project://hsqldb-2.3.1|);
+	list[Declaration] test_asts = getASTs(|project://smallsql0.21_src|);
+	//list[Declaration] test_asts = getASTs(|project://hsqldb-2.3.1|);
 	//list[Declaration] test_asts = getASTs(|project://test_project|);
+	
+	// Fetch all lines of code and their locations.
+	println("Fetching code lines");
+	map[tuple[int, str], loc] LOCLines = getLOC(test_asts);
 	
 	//println("Total LOC: <getLOC(test_asts)>");	
 	
@@ -43,7 +47,7 @@ void main(){
 	
 	//println("Complexity rank of project: <complexityRank(test_asts)>");
 	int before = userTime();
-	getDuplicates(test_asts);
+	getDuplicates(LOCLines);
 	println((userTime() - before)/1000000000);
 	
 	
