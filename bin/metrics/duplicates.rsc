@@ -83,11 +83,22 @@ map[str, set[loc]] getDuplicateBlocks(list[loc] sources, map[str, set[loc]] dupl
 		return duplicates;
 		
 	for (tuple[list[str] code, list[loc] locs] block <- blocks) {
-		//map[str, map[loc, list[tuple[list[str], list[loc]]]]] temp_dups;
+		map[str, map[loc, list[tuple[list[str], list[loc]]]]] temp_dups;
+		
 		for (block_size <- [6..size(block.code)+1]) {
 			str code_block = blockToString(block.code[0..block_size]);
 			loc loc_block = cover(block.locs[0..block_size]);
 			
+			if (code_block notin temp_dups)
+				temp_dups[code_block] = ();
+			
+			if (loc_block notin temp_dups[code_block])
+				temp_dups[code_block][loc_block] = [];
+				
+			temp_dups[code_block][loc_block] += block;
+			
+		}
+		for (temp_dup <- temp_dups) {
 			if (code_block notin duplicates)
 				duplicates[blockToString(block.code[0..block_size])] = {loc_block};
 			else
