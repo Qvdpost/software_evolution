@@ -25,10 +25,28 @@ str blockToString(list[str] block) {
 	str result = "";
 	
 	for (line <- block) {
-		result += line + "\n";
+		result += trim(line) + "\n";
 	}
 	
 	return result;
+}
+
+map[loc, str] mergeBlocks(loc src, map[loc, str] blocks) {
+	
+	map[loc, str] other_blocks = delete(blocks, src);
+	if (isEmpty(other_blocks))
+		return blocks;
+		
+	tuple[loc src, set[loc] blocks] other = takeFirstFrom(domain(other_blocks));
+	other_blocks = delete(blocks, other.src);
+	
+	if (isOverlapping(src, other.src)) {
+		loc block = cover([src, other.src]);
+		other_blocks[block] = blockToString(readFileLines(block));
+		return other_blocks + mergeBlocks(block, other_blocks);
+	}
+
+	return (other.src: blocks[other.src]) + mergeBlocks(src, other_blocks);
 }
 
 tuple[list[str], list[loc]] getBlock(loc src, map[str, set[loc]] duplicates, map[tuple[int, str], tuple[str, loc]] sourceCode, map[str, int] fileLOC) {
@@ -54,26 +72,26 @@ tuple[list[str], list[loc]] getBlock(loc src, map[str, set[loc]] duplicates, map
 	return <block, sources>;
 }
 
-tuple[list[str], list[loc]] getDuplicateBlock(loc src_block, list[loc] other_blocks) {
-
-	map[str, set[loc]] block_dups = ();
-	for (block_size <- [6..size(src_block)]) {
-
-		str block = blockToString(src_block[0..block_size]);
-		
-		//println("Block: <block> @ <cover(result.src[0..block_size])>");
-		for (other_block <- [blockToString(other[0..block_size]) | other <- other_blocks]) {
-			;
-		}
-		if (block notin duplicates)
-			duplicates[block] = {cover(result.src[0..block_size])};
-		else
-			duplicates[block] += {cover(result.src[0..block_size])};	
-
-	}
-	
-	return <duplicates, true>;
-}
+//tuple[list[str], list[loc]] getDuplicateBlock(loc src_block, list[loc] other_blocks) {
+//
+//	map[str, set[loc]] block_dups = ();
+//	for (block_size <- [6..size(src_block)]) {
+//
+//		str block = blockToString(src_block[0..block_size]);
+//		
+//		//println("Block: <block> @ <cover(result.src[0..block_size])>");
+//		for (other_block <- [blockToString(other[0..block_size]) | other <- other_blocks]) {
+//			;
+//		}
+//		if (block notin duplicates)
+//			duplicates[block] = {cover(result.src[0..block_size])};
+//		else
+//			duplicates[block] += {cover(result.src[0..block_size])};	
+//
+//	}
+//	
+//	return <duplicates, true>;
+//}
 
 map[str, set[loc]] getDuplicateBlocks(list[loc] sources, map[str, set[loc]] duplicates, map[tuple[int, str], tuple[str, loc]] sourceCode, map[str, int] fileLOC) {
 		
@@ -81,6 +99,13 @@ map[str, set[loc]] getDuplicateBlocks(list[loc] sources, map[str, set[loc]] dupl
 	
 	if (blocks == [])
 		return duplicates;
+		
+	//for (block <- blocks) {
+	//	tuple[list[str], list[loc]] dup_block = getDuplicateBlock(block, blocks - block);
+	//	
+	//	
+	//
+	//}
 		
 	for (tuple[list[str] code, list[loc] locs] block <- blocks) {
 		map[str, map[loc, list[tuple[list[str], list[loc]]]]] temp_dups;
@@ -171,19 +196,44 @@ void getDuplicates(map[tuple[int, str], loc] LOCLines) {
 	
 	// Add all largest consecutive lines of code that form a duplicate with another set of lines.
 	println("Getting duplicate blocks.");
-	int dup_line_count = size(duplicates);
-	for (code <- [dup | dup <- duplicates]) {
-		if (dup_line_count % 1000 == 0)
-			println("Dups to go: <dup_line_count>");
-		dup_line_count -= 1;
-		duplicates = getDuplicateBlocks(toList(duplicates[code]), duplicates, sourceCode, fileLOC);
-
+//	int dup_line_count = size(duplicates);
+//	for (code <- [dup | dup <- duplicates]) {
+//		if (dup_line_count % 1000 == 0)
+//			println("Dups to go: <dup_line_count>");
+//		dup_line_count -= 1;
+//		duplicates = getDuplicateBlocks(toList(duplicates[code]), duplicates, sourceCode, fileLOC);
+//
+//	}
+	int file_count = size(fileLOC);
+	for (file <- fileLOC) {
+		println("Blocking <file> (<file_count> to go)");
+		file_count -= 1;
+		int offset = 0;
+		for (line <- [0..fileLOC[file]+1], line + offset < fileLOC[file]) {
+			if (<line + offset, file> in sourceCode, tuple[str content, loc src] code := sourceCode[<line + offset, file>], code.content in duplicates) {
+				tuple[list[str] code, list[loc] srcs] block = getBlock(code.src, duplicates, sourceCode, fileLOC);
+				int block_len = size(block.code);
+				int block_size = 6;
+				if (block_len >= 6) {
+				//for (block_size <- [6..block_len+1], block_len >= 6) {
+					str code_block = blockToString(block.code[0..block_size]);
+					loc loc_block = cover(block.srcs[0..block_size]);
+					
+					if (code_block notin duplicates)
+						duplicates[code_block] = {loc_block};
+					else
+						duplicates[code_block] += {loc_block};
+				//}
+				}
+				//offset += block_len;
+			}
+		}
 	}
 		
 	// Discard all original single lines of duplicate code.
 	dup_count = 0;
 	map[str, set[loc]] duplicate_blocks = ();
-	for (codeLine <- duplicates, size(duplicates[codeLine]) > 1, size(split("\n", codeLine)) > 1) {
+	for (codeLine <- duplicates, size(duplicates[codeLine]) > 1, /\n/ := codeLine) {
 		//println("Dup: \'<codeLine>\' @ <duplicates[codeLine]>");
 		//println("");
 		duplicate_blocks[codeLine] = duplicates[codeLine];
@@ -206,18 +256,50 @@ void getDuplicates(map[tuple[int, str], loc] LOCLines) {
 		}
 	}
 	
-	println("Checking for strict super blockness");
-	int block_check_count = size(duplicate_locs);
-	for (block_loc <- duplicate_locs) {
-		if (block_check_count % 1000 == 0)
-			println("<block_check_count> block checks to go.");
-		block_check_count -= 1;
+	duplicate_blocks = ();
+	println("Merging overlapping blocks");
+	for (file <- file_block_locs) {
+		int block_count = 0; 
+		do {
+			block_count = size(file_block_locs[file]);
+			for (block_loc <- file_block_locs[file]) {
+				file_block_locs[file] = mergeBlocks(block_loc, file_block_locs[file]);
+			}
+		} while (size(file_block_locs[file]) != block_count);
 		
-		if (!isStrictSuperBlock(block_loc, domain(file_block_locs[block_loc.path]))) {
-			duplicate_blocks[duplicate_locs[block_loc]] -= block_loc;
+		
+		for (block_loc <- file_block_locs[file], code_block := file_block_locs[file][block_loc]) {
+			if (code_block notin duplicate_blocks)
+				duplicate_blocks[code_block] = {block_loc};
+			else
+				duplicate_blocks[code_block] += {block_loc};;
 		}
 	}
 	
+	//dup_count = 0;
+	//dup_line_count = 0;
+	//println("Calculating final duplicate blocks");
+	//for (file <- file_block_locs) {
+	//	for (block_loc <- file_block_locs[file]) {
+	//		println("<file_block_locs[file][block_loc]> @ <block_loc>");
+	//		println("");
+	//		dup_count += size(file_block_locs[file]);
+	//		dup_line_count += block_loc.end.line - block_loc.begin.line + 1;
+	//	}
+	//}
+	
+	//println("Checking for strict super blockness");
+	//int block_check_count = size(duplicate_locs);
+	//for (block_loc <- duplicate_locs) {
+	//	if (block_check_count % 1000 == 0)
+	//		println("<block_check_count> block checks to go.");
+	//	block_check_count -= 1;
+	//	
+	//	if (!isStrictSuperBlock(block_loc, domain(file_block_locs[block_loc.path]))) {
+	//		duplicate_blocks[duplicate_locs[block_loc]] -= block_loc;
+	//	}
+	//}
+	//
 	dup_count = 0;
 	dup_line_count = 0;
 	println("Calculating final duplicate blocks");
@@ -233,7 +315,7 @@ void getDuplicates(map[tuple[int, str], loc] LOCLines) {
 	
 	//duplicate_locs = (block_loc: duplicate_locs[block_loc] | block_loc <- duplicate_locs, isStrictSuperBlock(block_loc, domain(duplicate_locs)));
 	
-	println("Unique duplicates: <size(duplicate_blocks)>");
+	//println("Unique duplicates: <size(duplicate_blocks)>");
 	println("Total duplicates: <dup_count>");
 	println("Total duplicate lines: <dup_line_count>");
 
