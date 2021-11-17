@@ -17,14 +17,33 @@ tuple[int, int] countComments(loc src) {
 	list[str] lines = readFileLines(src);
 	int line_count = 0;
 	int char_count = 0;
-
+	
+	int newline = 1;
+	
+	bool open_comment = false;
 	for (line <- lines) {
-		//if (!(/((\s|\/*)(\/\*|\s\*)|[^\w,\;]\s\/*\/)/ := line) ) {
-		if (!(/(^(\s|\/*)(^\/\*|\s\*)|^[^\w,\;,\{,\}]\s\/*\/)/ := line) ) {
+		if (/^\s*\/\// := line) {
+			line_count += 1;
+			char_count += size(line) + 2;
+		} else if (/^\s*\/\*/ := line) {
+			line_count += 1;
+			char_count += size(line) + 2;	
+			open_comment = true;
+		} else if (/^\s*\*\// := line) {
+			line_count += 1;
+			char_count += size(line) + 2;	
+			open_comment = false;
+		} else if (open_comment) {
+			line_count += 1;
+			char_count += size(line) + 2;
+		} else 
 			return <line_count, char_count>;
-		}
-		line_count += 1;
-		char_count += size(line) + 2;
+		//if (!(/((\s|\/*)(\/\*|\s\*)|[^\w,\;]\s\/*\/)/ := line) ) {
+		////if (!(/(^(\s|\/*)(^\/\*|\s\*)|^[^\w,\;,\{,\}]\s\/*\/)/ := line) ) {
+		//	return <line_count, char_count>;
+		//}
+		//line_count += 1;
+		//char_count += size(line) + 2;
 	}
 	return <line_count, char_count>;
 }
@@ -76,6 +95,7 @@ private str consumeLine(loc src) {
 }
 
 private map[tuple[int, str], loc] addBeginLine(map[tuple[int, str], loc] lines, loc src) {
+
 	src.offset -= src.begin.column;
 	src.length = 1;
 	src.begin.column = 0;
@@ -83,6 +103,8 @@ private map[tuple[int, str], loc] addBeginLine(map[tuple[int, str], loc] lines, 
 	src.end.column = 1;
 	
 	str line = consumeLine(src);
+	
+		
 	
 	src.end.column = size(line);
 	src.length = size(line);
@@ -143,11 +165,18 @@ private map[tuple[int, str], loc] updateLOCLines(map[tuple[int, str], loc] lines
 	}
 	
 	// The Rascal AST counts preceding lines of comments in the node begin.line value.
-	if (src.end.line - src.begin.line != 0) {
+	if (src.end.line != src.begin.line) {
+		src.offset -= src.begin.column;
+		src.length += src.begin.column;
+		src.begin.column = 0;
 		tuple[int line_count, int char_count] comment = countComments(src);
-		src.begin.line += comment.line_count;
-		src.offset += comment.char_count;
-		src.length -= comment.char_count;
+
+		if (comment[0] > 0) {
+			src.begin.line += comment.line_count;
+			src.offset += comment.char_count;
+			src.length -= comment.char_count;
+			src.begin.column = 0;
+		}
 	}
 		
 	lines = addBeginLine(lines, src);
@@ -172,14 +201,40 @@ map[tuple[int, str], loc] getLOC(list[Declaration] asts) {
 	return LOCLines;
 }
 
+map[str, map[int, map[loc, str]]] getLOCFromFile(loc file) {
+	map[str, map[int, map[loc, str]]] locLines = (file.path: ());
+	int offset = 0;
+	int line_number = 0;
+	for (line <- readFileLines(file)) {
+		int line_len = size(line);
+		locLines[file.path][line_number] = (file(offset, line_len,<line_number,0>,<line_number, line_len>): trim(line));
+		offset += line_len + 2;
+		line_number += 1;
+	}
+	
+	return locLines;
+}
+
+map[str, map[int, map[loc, str]]] getRegexLOC(loc projectLocation) {
+	M3 model = createM3FromEclipseProject(projectLocation);
+	// map[file_path, map[line_number, map[loc, code]]]
+	map[str, map[int, map[loc, str]]] LOCLines = ();
+	
+	for (m <- model.containment, m[0].scheme == "java+compilationUnit"){
+		LOCLines += getLOCFromFile(m[0]);
+	}
+	
+	return LOCLines;
+}
+
 int getLOCCount(list[Declaration] asts){
-	return size(getCodeLines(asts));
+	return size(getLOC(asts));
 }
 
 map[Declaration, int] getUnitSize(list[Declaration] subtrees) {
 	map[Declaration, int] result = ();
 	for (subtree <- subtrees) {
-		result[subtree] = getLOC([subtree]);
+		result[subtree] = getLOCCount([subtree]);
 	}
 	return result;
 }

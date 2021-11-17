@@ -21,13 +21,13 @@ void main(){
 	//Declaration test_ast = createAstFromFile(test_file, true);
 	//
 	
-	list[Declaration] test_asts = getASTs(|project://smallsql0.21_src|);
+	//list[Declaration] test_asts = getASTs(|project://smallsql0.21_src|);
 	//list[Declaration] test_asts = getASTs(|project://hsqldb-2.3.1|);
 	//list[Declaration] test_asts = getASTs(|project://test_project|);
 	
 	// Fetch all lines of code and their locations.
 	println("Fetching code lines");
-	map[tuple[int, str], loc] LOCLines = getLOC(test_asts);
+	map[str, map[int, map[loc, str]]] LOCLines = getRegexLOC(|project://test_project|);;
 	
 	//println("Total LOC: <getLOC(test_asts)>");	
 	
