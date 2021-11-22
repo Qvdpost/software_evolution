@@ -31,65 +31,73 @@ str blockToString(list[str] block) {
 	return result;
 }
 
-tuple[list[str], list[loc]] getBlock(loc src, map[list[str], set[loc]] duplicates, map[tuple[int, str], tuple[str, loc]] sourceCode, map[str, int] fileLOC) {
-	list[str] block = [sourceCode[<src.begin.line, src.path>][0]];
+tuple[list[str], list[loc]] getBlock(loc src, map[list[str], set[list[loc]]] duplicates,  map[str, map[int, map[loc, str]]] locLines) {
+	list[str] block = [locLines[src.path][src.begin.line][src]];
 	list[loc] sources = [src];
 	
-	int line_number = src.begin.line;
-	while (line_number < fileLOC[src.path]) {
-		line_number += 1;
-		tuple[int, str] next = <line_number, src.path>;
-		
-		if (next in sourceCode) {
-			// Immediately terminate if the next LOC is not a duplicate.
-			if ([sourceCode[next][0]] notin duplicates) {
-				return <block, sources>;
-			}
-			
-			block += sourceCode[next][0];
-			sources += sourceCode[next][1];
-		} 
+	int fileLen = max(domain(locLines[src.path]));
 
+	int line_number = src.begin.line;
+	while (line_number < fileLen) {
+		line_number += 1;
+		
+		if (line_number in locLines[src.path], lineLOC := locLines[src.path][line_number]) {
+			for (tuple[loc src, str code] line <- toList(lineLOC)) {
+				// Immediately terminate if the next LOC is not a duplicate.
+				if ([line.code] notin duplicates) {
+					return <block, sources>;
+				}
+				
+				block += line.code;
+				sources += line.src;
+			}
+		} 
 	}
 		
 	return <block, sources>;
 }
 
-map[list[str], set[loc]] getDuplicateBlock(tuple[list[str] code, list[loc] srcs] block, map[list[str], set[loc]] duplicates, map[tuple[int, str], tuple[str, loc]] sourceCode, map[str, int] fileLOC) {
+map[list[str], set[list[loc]]] getDuplicateBlock(tuple[list[str] code, list[loc] srcs] block, map[list[str], set[list[loc]]] duplicates) {
 	int block_len = size(block.code);
 	for (sub_block_size <- [0..block_len - 6 + 1], block_len >= 6) {
 		for (block_size <- [6+sub_block_size..block_len+1]) {
 			list[str] code_block = block.code[sub_block_size..block_size];
-			loc loc_block = cover(block.srcs[sub_block_size..block_size]);
-			
+			list[loc] loc_block = block.srcs[sub_block_size..block_size];
+							
 			if (code_block notin duplicates)
 				duplicates[code_block] = {loc_block};
 			else
 				duplicates[code_block] += {loc_block};
-
+	
 		}
 	}
-	
 	return duplicates;
 }
 
-map[list[str], set[loc]] getDuplicateBlocks(map[list[str], set[loc]] duplicates, map[tuple[int, str], tuple[str, loc]] sourceCode, map[str, int] fileLOC) {
-	int file_count = size(fileLOC);
-	for (file <- fileLOC) {
-		println("Blocking <file> (<file_count> to go)");
+map[list[str], set[list[loc]]] getDuplicateBlocks(map[list[str], set[list[loc]]] duplicates, map[str, map[int, map[loc, str]]] locLines) {
+	int file_count = size(locLines);
+	for (file <- locLines, fileLOC := locLines[file]) {
+		if (file_count % 100 == 0)
+			println("Blocking <file> (<file_count> left)");
 		file_count -= 1;
-		int offset = 0;
 		
-		for (line <- [0..fileLOC[file]+1], line + offset < fileLOC[file]) {
-			if (<line + offset, file> in sourceCode, tuple[str content, loc src] code := sourceCode[<line + offset, file>], code.content != "}", [code.content] in duplicates) {
-				tuple[list[str] code, list[loc] srcs] block = getBlock(code.src, duplicates, sourceCode, fileLOC);
-				int block_len = size(block.code);
+		int offset = 0;
+		int fileLen = max(domain(fileLOC));
+		
+		for  (line_number <- [0..fileLen+1], line_number + offset < fileLen) {
+			line_number += offset;
+			if (line_number in fileLOC, lineLOC := fileLOC[line_number]) {
+				for (src <- lineLOC, code := lineLOC[src], [code] in duplicates) {
+					tuple[list[str] code, list[loc] srcs] block = getBlock(src, duplicates, locLines);
+					int block_len = size(block.code);
 					
-				duplicates = getDuplicateBlock(block, duplicates, sourceCode, fileLOC);
-				
-				offset += block_len;
+					if (block_len >= 6) {
+						duplicates = getDuplicateBlock(block, duplicates);
+					}
+					offset += block_len;
+				}
 			}
-		}
+		}	
 	}
 	
 	return duplicates;
@@ -104,52 +112,23 @@ bool isStrictSuperBlock(loc src, set[loc] others) {
 	return true;
 }
 
-list[tuple[str, loc]] getCodeLines(map[str, map[int, map[loc, str]]] lines) {
-	list[tuple[str, loc]] codeLines = [];
-	println("Trimming and cleaning up");
-	int loclines_count = size(lines);
-	for (locline <- lines) {
-		if (loclines_count % 1000 == 0)
-			println("<loclines_count> lines to go.");
-		loclines_count -=1;
-		codeLines += <trim(getContent(lines[locline])), lines[locline]>;
-	}
+void getDuplicates(map[str, map[int, map[loc, str]]] locLines) {
 	
-	return codeLines;
-}
-
-void getDuplicates(map[tuple[int, str], loc] LOCLines) {
+	num code_count = sum([size(domain(locLines[file])) | file <- locLines]);
 	
-	list[tuple[str, loc]] codeLines = getCodeLines(LOCLines);
-	
-
 	// Map all lines and occurrences
-	map[list[str], set[loc]] duplicates = ();
-	
-	// Keep track of line numbers and their filepaths related to their source code and precise location.
-	map[tuple[int, str], tuple[str, loc]] sourceCode = ();
-	
-	// Remember some meta-data about files (number of code lines).
-	map[str, int] fileLOC = ();
-	
-	int lines_count = size(codeLines);
-	println("Setting up code lines and metadata");
-	for (tuple[str code, loc src] line <- codeLines) {
-		if (lines_count % 1000 == 0)
-			println("<lines_count> lines to go.");
-		//println("<line.code> @ <line.src>");
-		lines_count -=1;
-		if ([line.code] notin duplicates)
-			duplicates[[line.code]] = {line.src};
-		else
-			duplicates[[line.code]] += line.src;
-			
-		sourceCode[<line.src.begin.line, line.src.path>] = <line.code, line.src>;
+	map[list[str], set[list[loc]]] duplicates = ();
 		
-		if (line.src.path notin fileLOC) 
-			fileLOC[line.src.path] = line.src.begin.line;
-		else
-			fileLOC[line.src.path] = max([line.src.begin.line, fileLOC[line.src.path]]);
+	println("Setting up code lines and metadata");
+	for (file <- locLines, fileLOC := locLines[file]) {
+		for  (line_number <- locLines[file], lineLOC := fileLOC[line_number]) {
+			for (src <- lineLOC, code := lineLOC[src]) {
+				if ([code] in duplicates)
+					duplicates[[code]] += {[src]};
+				else
+					duplicates[[code]] = {[src]};
+			}
+		}	
 	}
 	
 	// Discard all unique lines.
@@ -157,19 +136,19 @@ void getDuplicates(map[tuple[int, str], loc] LOCLines) {
 	
 	// Add all largest consecutive lines of code that form a duplicate with another set of lines.
 	println("Getting duplicate blocks.");
-	duplicates = getDuplicateBlocks(duplicates, sourceCode, fileLOC);
-
-
+	duplicates = getDuplicateBlocks(duplicates, locLines);
 		
 	// Discard all original single lines of duplicate code.
+	println("Filtering duplicate blocks");
 	map[list[str], set[loc]] duplicate_blocks = ();
 	for (codeLine <- duplicates, size(duplicates[codeLine]) > 1, size(codeLine) > 1) {
-		duplicate_blocks[codeLine] = duplicates[codeLine];
+		duplicate_blocks[codeLine] = {cover([head(locs), last(locs)]) | locs <- (duplicates[codeLine])};
 	}
-	
+		
 	map[loc, list[str]] duplicate_locs = ();
 	map[str, map[loc, list[str]]] file_block_locs = ();
 	
+	println("Calculating locations");
 	for (codeBlock <- duplicate_blocks) {
 		for (block_loc <- duplicate_blocks[codeBlock]) {
 			if (block_loc.path notin file_block_locs)
@@ -207,8 +186,6 @@ void getDuplicates(map[tuple[int, str], loc] LOCLines) {
 	
 	println("Total duplicates: <dup_count>");
 	println("Total duplicate lines: <dup_line_count>");
-	println("Duplicate percentage: <dup_line_count / size(LOCLines) * 100>%");
-
-	// Start from each duplicate and continue a block of 6 from other occurrences
+	println("Duplicate percentage: <dup_line_count / code_count * 100>%");
 
 }

@@ -201,13 +201,49 @@ map[tuple[int, str], loc] getLOC(list[Declaration] asts) {
 	return LOCLines;
 }
 
+tuple[str, bool] getCode(str line, bool openComment) {
+	line = trim(line);
+	if (!openComment, /^\/\// := line)
+		return <"", openComment>;
+	
+	str multiStart = "";
+	str multiEnd = "";
+	if ( !openComment, /<begin:.*>\/\*<rest:.*>/ := line) {
+		multiStart = trim(begin);
+		line = rest;
+		openComment = true;
+	}
+
+	if (!openComment, multiStart == "") {
+		return <line, openComment>;
+	}
+	
+	if (/\*\/<end:.*>/ := line) {
+		multiEnd = trim(end);
+		openComment = false;
+	}
+	
+		
+	return <multiStart + multiEnd, openComment>;
+
+}
+
 map[str, map[int, map[loc, str]]] getLOCFromFile(loc file) {
 	map[str, map[int, map[loc, str]]] locLines = (file.path: ());
 	int offset = 0;
-	int line_number = 0;
+	int line_number = 1;
+	bool openComment = false;
+	
 	for (line <- readFileLines(file)) {
 		int line_len = size(line);
-		locLines[file.path][line_number] = (file(offset, line_len,<line_number,0>,<line_number, line_len>): trim(line));
+		
+		tuple[str code, bool comment] codeLine = getCode(line, openComment);
+		openComment = codeLine.comment;
+		
+		//println("<codeLine.code> @ <file(offset, line_len,<line_number,0>,<line_number, line_len>)>");
+		if (codeLine.code != "")
+			locLines[file.path][line_number] = (file(offset, line_len,<line_number,0>,<line_number, line_len>): replaceAll(codeLine.code, " ", ""));
+			
 		offset += line_len + 2;
 		line_number += 1;
 	}

@@ -27,7 +27,7 @@ void main(){
 	
 	// Fetch all lines of code and their locations.
 	println("Fetching code lines");
-	map[str, map[int, map[loc, str]]] LOCLines = getRegexLOC(|project://test_project|);;
+	map[str, map[int, map[loc, str]]] LOCLines = getRegexLOC(|project://smallsql0.21_src|);;
 	
 	//println("Total LOC: <getLOC(test_asts)>");	
 	
