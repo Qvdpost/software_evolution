@@ -112,9 +112,60 @@ bool isStrictSuperBlock(loc src, set[loc] others) {
 	return true;
 }
 
-void getDuplicates(map[str, map[int, map[loc, str]]] locLines) {
+map[list[str], set[loc]] filterSubsumption(map[list[str], set[loc]] duplicates) {
+
+	map[loc, list[str]] duplicate_locs = ();
+	map[str, map[loc, list[str]]] file_block_locs = ();
 	
-	num code_count = sum([size(domain(locLines[file])) | file <- locLines]);
+	println("Calculating locations");
+	for (codeBlock <- duplicates) {
+		for (block_loc <- duplicates[codeBlock]) {
+			if (block_loc.path notin file_block_locs)
+				file_block_locs[block_loc.path] = ();
+				
+			file_block_locs[block_loc.path][block_loc] = codeBlock;
+			duplicate_locs[block_loc] = codeBlock;
+		}
+	}
+	
+	println("Checking for strict super blockness");
+	int block_check_count = size(duplicate_locs);
+	for (block_loc <- duplicate_locs) {
+		if (block_check_count % 1000 == 0)
+			println("<block_check_count> block checks to go.");
+		block_check_count -= 1;
+		
+		// Check for size of duplicate_blocks[duplicate_locs[block_loc]] to maintain a trace of duplication.
+		if (!isStrictSuperBlock(block_loc, domain(file_block_locs[block_loc.path]))) {
+			duplicates[duplicate_locs[block_loc]] -= block_loc;
+		}
+	}
+
+	return duplicates;
+}
+
+void showDuplicateStats(map[list[str], set[loc]] duplicates, int code_count) {
+	num dup_count = 0;
+	num dup_line_count = 0;
+	println("Calculating final duplicate blocks");
+	for (codeBlock <- duplicates) {
+		if (duplicates[codeBlock] != {}) {
+			dup_count += size(duplicates[codeBlock]);
+			dup_line_count += size(codeBlock) * size(duplicates[codeBlock]);
+			println("Dup blocks @ <duplicates[codeBlock]>");
+			println("");
+		}
+	}
+	
+	println("Total duplicates: <dup_count>");
+	println("Total duplicate lines: <dup_line_count>");
+	println("Duplicate percentage: <dup_line_count / code_count * 100>%");
+
+}
+
+map[list[str], set[loc]] getDuplicates(map[str, map[int, map[loc, str]]] locLines) {
+	
+	
 	
 	// Map all lines and occurrences
 	map[list[str], set[list[loc]]] duplicates = ();
@@ -144,48 +195,12 @@ void getDuplicates(map[str, map[int, map[loc, str]]] locLines) {
 	for (codeLine <- duplicates, size(duplicates[codeLine]) > 1, size(codeLine) > 1) {
 		duplicate_blocks[codeLine] = {cover([head(locs), last(locs)]) | locs <- (duplicates[codeLine])};
 	}
-		
-	map[loc, list[str]] duplicate_locs = ();
-	map[str, map[loc, list[str]]] file_block_locs = ();
 	
-	println("Calculating locations");
-	for (codeBlock <- duplicate_blocks) {
-		for (block_loc <- duplicate_blocks[codeBlock]) {
-			if (block_loc.path notin file_block_locs)
-				file_block_locs[block_loc.path] = ();
-				
-			file_block_locs[block_loc.path][block_loc] = codeBlock;
-			duplicate_locs[block_loc] = codeBlock;
-		}
-	}
+	// Discard all blocks contained in other blocks
+	duplicate_blocks = filterSubsumption(duplicate_blocks);
 	
-	println("Checking for strict super blockness");
-	int block_check_count = size(duplicate_locs);
-	for (block_loc <- duplicate_locs) {
-		if (block_check_count % 1000 == 0)
-			println("<block_check_count> block checks to go.");
-		block_check_count -= 1;
-		
-		// Check for size of duplicate_blocks[duplicate_locs[block_loc]] to maintain a trace of duplication.
-		if (!isStrictSuperBlock(block_loc, domain(file_block_locs[block_loc.path]))) {
-			duplicate_blocks[duplicate_locs[block_loc]] -= block_loc;
-		}
-	}
+	//num code_count = sum([size(domain(locLines[file])) | file <- locLines]);
+	//showDuplicateStats(duplicate_blocks, code_count);
 	
-	num dup_count = 0;
-	num dup_line_count = 0;
-	println("Calculating final duplicate blocks");
-	for (codeBlock <- duplicate_blocks) {
-		dup_count += size(duplicate_blocks[codeBlock]);
-		dup_line_count += size(codeBlock) * size(duplicate_blocks[codeBlock]);
-		if (duplicate_blocks[codeBlock] != {}) {
-			println("Dup blocks @ <duplicate_blocks[codeBlock]>");
-			println("");
-		}
-	}
-	
-	println("Total duplicates: <dup_count>");
-	println("Total duplicate lines: <dup_line_count>");
-	println("Duplicate percentage: <dup_line_count / code_count * 100>%");
-
+	return duplicate_blocks;
 }

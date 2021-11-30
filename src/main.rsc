@@ -14,6 +14,7 @@ import metrics::ast_reader;
 import metrics::complexity;
 import metrics::duplicates;
 import metrics::lines_of_code;
+import metrics::clones;
 
 void main(){
 	//loc test_file = |project://series_1/test_data/test.java|;
@@ -27,7 +28,7 @@ void main(){
 	
 	// Fetch all lines of code and their locations.
 	println("Fetching code lines");
-	map[str, map[int, map[loc, str]]] LOCLines = getRegexLOC(|project://smallsql0.21_src|);;
+	//map[str, map[int, map[loc, str]]] LOCLines = getRegexLOC(|project://smallsql0.21_src|);;
 	
 	//println("Total LOC: <getLOC(test_asts)>");	
 	
@@ -47,7 +48,9 @@ void main(){
 	
 	//println("Complexity rank of project: <complexityRank(test_asts)>");
 	int before = userTime();
-	getDuplicates(LOCLines);
+	//getDuplicates(LOCLines);
+	//getClonesType1(LOCLines);
+	getClonesType2(|project://test_project|);
 	println((userTime() - before)/1000000000);
 	
 	

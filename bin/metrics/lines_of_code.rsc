@@ -38,12 +38,6 @@ tuple[int, int] countComments(loc src) {
 			char_count += size(line) + 2;
 		} else 
 			return <line_count, char_count>;
-		//if (!(/((\s|\/*)(\/\*|\s\*)|[^\w,\;]\s\/*\/)/ := line) ) {
-		////if (!(/(^(\s|\/*)(^\/\*|\s\*)|^[^\w,\;,\{,\}]\s\/*\/)/ := line) ) {
-		//	return <line_count, char_count>;
-		//}
-		//line_count += 1;
-		//char_count += size(line) + 2;
 	}
 	return <line_count, char_count>;
 }
@@ -203,28 +197,52 @@ map[tuple[int, str], loc] getLOC(list[Declaration] asts) {
 
 tuple[str, bool] getCode(str line, bool openComment) {
 	line = trim(line);
-	if (!openComment, /^\/\// := line)
-		return <"", openComment>;
-	
-	str multiStart = "";
-	str multiEnd = "";
-	if ( !openComment, /<begin:.*>\/\*<rest:.*>/ := line) {
-		multiStart = trim(begin);
-		line = rest;
-		openComment = true;
+//	if (!openComment, /^\/\// := line)
+//		return <"", openComment>;
+//	
+//	str multiStart = "";
+//	str multiEnd = "";
+//	if ( !openComment, /<begin:.*>\/\*<rest:.*>/ := line) {
+//		multiStart = trim(begin);
+//		line = rest;
+//		openComment = true;
+//	}
+//
+//	if (!openComment, multiStart == "") {
+//		return <line, openComment>;
+//	}
+//	
+//	if (/\*\/<end:.*>/ := line) {
+//		multiEnd = trim(end);
+//		openComment = false;
+//	}
+
+	cleanCode = visit(line) {
+		case /^".*"/ => ""
 	}
 
-	if (!openComment, multiStart == "") {
-		return <line, openComment>;
+	str code = ""; 
+	if (openComment, /\*\/<rest:.*>/ := line) {
+		line = rest;
 	}
+	// Check if a open multiline comment is closed
+	openComment = openComment && !/[^\/\*]{0,1}\*\// := cleanCode;
 	
-	if (/\*\/<end:.*>/ := line) {
-		multiEnd = trim(end);
-		openComment = false;
-	}
+
+	if (!openComment)
+		code = visit(line){
+			case /^<literal:".*">/ => literal
+			case /^\/\*.*\*\// => ""
+			case /^\/\*.*/ => ""
+			case /^\/\*.*[^\*\/]/ => ""
+		}
+	
+	// Check for opening multiline comment
+	if (/\/\*<rest:.*>/ := cleanCode, !/\*\// := rest)
+		openComment = true;
 	
 		
-	return <multiStart + multiEnd, openComment>;
+	return <code, openComment>;
 
 }
 
@@ -240,9 +258,9 @@ map[str, map[int, map[loc, str]]] getLOCFromFile(loc file) {
 		tuple[str code, bool comment] codeLine = getCode(line, openComment);
 		openComment = codeLine.comment;
 		
-		//println("<codeLine.code> @ <file(offset, line_len,<line_number,0>,<line_number, line_len>)>");
+		
 		if (codeLine.code != "")
-			locLines[file.path][line_number] = (file(offset, line_len,<line_number,0>,<line_number, line_len>): replaceAll(codeLine.code, " ", ""));
+			locLines[file.path][line_number] = (file(offset, line_len,<line_number,0>,<line_number, line_len>): codeLine.code);
 			
 		offset += line_len + 2;
 		line_number += 1;
