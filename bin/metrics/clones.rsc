@@ -64,10 +64,26 @@ str typToString(TypeSymbol typ) {
 str replaceVarName(str word, Expression expr) {
 	if (\qualifiedName(_, _) := expr)
 		return "__qualifiedName__";
-	if (word == expr.name) 
-		return "__" + typToString(expr.typ) + "__";
+	switch (expr.typ) {
+		case \int(): return "__" + typToString(expr.typ) + "__";
+		case \float(): return "__" + typToString(expr.typ) + "__";
+		case \double(): return "__" + typToString(expr.typ) + "__";
+		case \short(): return "__" + typToString(expr.typ) + "__";
+		case \boolean(): return "__" + typToString(expr.typ) + "__";
+		case \char(): return "__" + typToString(expr.typ) + "__";
+		case \byte(): return "__" + typToString(expr.typ) + "__";
+		case \long(): return "__" + typToString(expr.typ) + "__";
+		//case \void(): return "__" + typToString(expr.typ) + "__";
+		case \null(): return "__" + typToString(expr.typ) + "__";
+		case \array(_, _): return "__" + typToString(expr.typ) + "__";	
+	}
+
+	//if (word == expr.name) 
+	//	return "__" + typToString(expr.typ) + "__";
 	
-	return word;
+	
+	
+	return "__" + word + "__";
 }
 
 bool isSubsumed(set[loc] a, set[loc] b) {
@@ -97,13 +113,115 @@ bool checkSubsumption(tuple[node tree, set[loc] locs] a, set[set[loc]] targets) 
 map[node, set[loc]] filterTreeSubsumption(list[tuple[node tree, set[loc] locs]] pairs, set[set[loc]] targets) {
 	if (isEmpty(pairs))
 		return ();
+	if (isEmpty(targets))
+		return ();
 		
 	tuple[node tree, set[loc] locs] pair = head(pairs);
+
 	if (!checkSubsumption(pair, targets))
 		return (pair.tree: pair.locs) + filterTreeSubsumption(tail(pairs), targets);
 	else
 		return filterTreeSubsumption(tail(pairs), targets - {pair.locs});
 }
+
+bool isOverlapped(set[loc] a, set[loc] b) {
+	if (size(a) != size(b))
+		return false;
+		
+	for (src <- a) {
+		bool overlapped = false;
+		for (other <- b) {
+			if (isOverlapping(src, other)) {
+				overlapped = true;
+				break;
+			}
+		}
+		if (!overlapped)
+			return false;
+	}
+	return true;
+}
+
+set[loc] checkOverlap(tuple[node tree, set[loc] locs] a, set[set[loc]] targets) {
+	for (target <- targets) {
+		if (isOverlapped(a.locs, target)) {
+			return target;
+		}
+	}
+	return {};
+}
+
+tuple[node tree, set[loc] locs]mergeTrees(tuple[node tree, set[loc] locs] a, tuple[node tree, set[loc] locs] b) {
+	list[Statement] aStates;
+	if (Statement body := a.tree[0])
+		if (list[Statement] statements := body[0])
+			aStates = statements;
+	
+	list[Statement] bStates;
+	if (Statement body := b.tree[0])
+		if (list[Statement] statements := body[0])
+			bStates = statements;
+
+	node newTree;
+	for ([*l, *r] := aStates) {
+		//println("<l>,<r>");
+		if ([r, *rem] := bStates, l != [], r != [])
+			newTree = makeSubtree(l+r+rem);
+		else if ([*rem, l] := bStates, r != [], rem != []) 
+			newTree= makeSubtree(rem+l+r);
+	}
+	
+	set[loc] newSrc = {};
+	for (src <- a.locs) {
+		for (other <- b.locs) {
+			if (isOverlapping(src, other)) {
+				newSrc += cover([src, other]);
+			}
+		}
+	}
+	
+	return <newTree, newSrc>;
+}
+
+map[node, set[loc]] mergeTreeOverlap(list[tuple[node tree, set[loc] locs]] pairs) {
+	if (isEmpty(pairs))
+		return ();
+	//println(size(pairs));
+	tuple[node tree, set[loc] locs] pair = head(pairs);
+	
+	pairs = tail(pairs);
+	
+	set[set[loc]] others = {others.locs | tuple[node tree, set[loc] locs] others <- pairs};
+	
+	list[tuple[node tree, set[loc] locs]] overlap_pairs = [];
+	
+	set[loc] overlap = checkOverlap(pair, others);
+	if (overlap == {})
+		return (pair.tree: pair.locs) + mergeTreeOverlap(pairs);
+	
+	while (overlap != {}) {
+		for (target_pair <- pairs) {
+			if (target_pair[1] == overlap) {
+				overlap_pairs += target_pair;
+				break;
+			}
+		}
+		//pairs -= overlap_pairs;
+		//others = {others.locs | tuple[node tree, set[loc] locs] others <- pairs};
+		others -= {overlap};
+		overlap = checkOverlap(pair, others);
+	}
+	
+	list[tuple[node tree, set[loc] locs]] merged_pairs = [];
+	for (overlap_pair <- overlap_pairs) {
+		merged_pairs += mergeTrees(pair, overlap_pair);
+	
+	}
+
+
+	return mergeTreeOverlap(pairs + merged_pairs - overlap_pairs);
+}
+
 
 Expression anonymizeVar(Expression expr) {
 	if (expr@name ?)
@@ -123,6 +241,13 @@ int mass(node tree) {
 	
 	return treeMass;
 
+}
+
+node makeSubtree(list[Statement] statements) {
+	node subTree = makeNode("subTree", \block(statements));
+	subTree = unsetRec(subTree, {"src", "decl"});
+	
+	return subTree;
 }
 
 list[Statement] flattenBlock(list[Statement] unitBlock) {
@@ -155,15 +280,16 @@ list[Statement] flattenBlock(list[Statement] unitBlock) {
 				if_node = state;
 				if_node[1] = \empty();
 				if_node[2] = \empty();
-				else_node = setKeywordParameters(\expressionStatement(\simpleName("__elseBranch__")), ("src": state.src));
-				unit_body += if_node +  flattenBlock(thenBranch) + else_node + flattenBlock(elseBranch);
+				Statement else_node;
+				if (node elseBlock := state[2])
+					else_node = setKeywordParameters(\expressionStatement(\simpleName("__elseBranch__")), ("src": elseBlock.src));
+				unit_body += if_node + flattenBlock(thenBranch) + else_node + flattenBlock(elseBranch);
 			}
 			case state:\if(Expression condition, \block(thenBranch), elseBranch): {
 				if_node = state;
 				if_node[1] = \empty();
 				if_node[2] = \empty();
-				else_node = setKeywordParameters(\expressionStatement(\simpleName("__elseBranch__")), ("src": state.src));
-				unit_body += if_node +  flattenBlock(thenBranch) + else_node + flattenBlock([elseBranch]);
+				unit_body += if_node + flattenBlock(thenBranch) + flattenBlock([elseBranch]);
 			}
 			case state:\switch(Expression expression, list[Statement] statements): {
 				switch_node = state;
@@ -203,22 +329,6 @@ list[Statement] flattenBlock(list[Statement] unitBlock) {
 		}
 	}
 	
-	//visit (block){
-	//	case \block(list[Statement] statements): unit_body += flattenBlock(statements);
-	//	case \foreach(Declaration parameter, Expression collection, \block(body)): unit_body += [\foreach(parameter, collection, \empty())] + flattenBlock(body);
-	//	case \for(list[Expression] initializers, Expression condition, list[Expression] updaters, \block(body)): unit_body += [\for(initializers, condition, updaters, \empty())] + flattenBlock(body);
-	//	case \for(list[Expression] initializers, list[Expression] updaters, \block(body)): unit_body += [\for(initializers, updaters, \empty())] +  flattenBlock(body);
-	//	case \if(Expression condition, \block(thenBranch)): unit_body += [\if(condition, \empty())] +  flattenBlock(thenBranch);
-	//	case \if(Expression condition, \block(thenBranch), \block(elseBranch)): unit_body += [\if(condition, \empty(), \empty())] +  flattenBlock(thenBranch) + flattenBlock(elseBranch);
-	//	case \switch(Expression expression, list[Statement] statements): unit_body += [\switch(expression, [])] +  flattenBlock(statements);
-	//	case \synchronizedStatement(Expression lock, \block(body)): unit_body += [\synchronizedStatement(lock, \empty())] +  flattenBlock(body);
-	//	case \try(\block(body), list[Statement] catchClauses): unit_body += [\try(\empty(), []), flattenBlock(body)] +  flattenBlock(catchClauses);
-	//	case \try(\block(body), list[Statement] catchClauses, \block(\finally)): unit_body += [\try(\empty(), [], \empty())] +  flattenBlock(body) + flattenBlock(catchClauses) + flattenBlock(\finally);
-	//	case \catch(Declaration exception, \block(body)): unit_body += [\catch(exception, \empty())] +  flattenBlock(body);
-	//	case \while(Expression condition, \block(body)): unit_body += [\while(condition, \empty())] + flattenBlock(body);
-	//	case \Statement statement: unit_body += statement;
-	//}
-	
 	return unit_body;
 }
 
@@ -229,9 +339,9 @@ void getClonesType2(loc projectLocation) {
 	list[Declaration] units = getMethods(asts);
 	
 	// Modify ast for clone detection.
-	//units = visit(units){
-	//	case \Expression expr => anonymizeVar(expr)
-	//}
+	units = visit(units){
+		case \Expression expr => anonymizeVar(expr)
+	}
 	
 	// Flatten units
 	units = top-down visit(units){
@@ -244,89 +354,63 @@ void getClonesType2(loc projectLocation) {
 	map[node, set[loc]] subTrees = ();
 	
 	// Add subtrees to map.
-	println("Finding duplicate subtrees");
+	println("Finding duplicate subtrees within units");
+	int unit_count = size(units);
 	for (unit <- units) {
+		if (unit_count % 10 == 0)
+			println("<unit_count> units to go.");
+		unit_count -= 1;
 		if (Statement body := unit[4])
 			if (list[Statement] statements := body[0])
-				for (treeEnd <- [6..size(statements)]) {
-					for (treeStart <- [0..treeEnd+1]) {
-						src = cover([statements[treeStart].src, statements[treeEnd].src]);
-							
-						node subTree = makeNode("subTree", \block(statements[treeStart..treeEnd+1]));
-						subTree = unsetRec(subTree, {"src", "decl"});
+				if (size(statements) >= 6) {
+					//println("Unit of size: <size(statements)>");
+					int statement_count = size(statements);
+					int sub_tree_size = 6;
+					for (treeStart <- [0..statement_count + 1 - sub_tree_size]) {
+						start_src = statements[treeStart].src;
+						end_src = statements[treeStart + sub_tree_size - 1].src;
+						start_src.length = 1;
+						end_src.length = end_src.begin.column;
+						src = cover([start_src, end_src]);
 						
+						node subTree = makeSubtree(statements[treeStart..treeStart + sub_tree_size]);
+													
 						if (subTree in subTrees)
 							subTrees[subTree] += src;
 						else
 							subTrees[subTree] = {src};
-							
-						//println(subTree);
-						//println(src);
-						//println("=============");
 					}
 				}
-		//for {start <- [0..range(unit[4]
-		//if (mass(subTree) >= 12) {
-		//	loc src = |unknown:///|;
-		//	if (subTree@src ?, loc node_src := subTree.src)
-		//		src = node_src;
-		//		
-		//	subTree = unsetRec(subTree, {"src", "decl"});
-		//					
-		//	if (subTree in subTrees)
-		//		subTrees[subTree] += src;
-		//	else
-		//		subTrees[subTree] = {src};
-		//		
-		//	println(subTree);
-		//	println(src);
-		//}
 	}
-	//visit(units) {
-	//	case node subTree: {	
-	//		
-	//		if (mass(subTree) >= 12) {
-	//		
-	//			loc src = |unknown:///|;
-	//			if (subTree@src ?, loc node_src := subTree.src)
-	//				src = node_src;
-	//				
-	//			subTree = unsetRec(subTree, {"src", "decl"});
-	//							
-	//			if (subTree in subTrees)
-	//				subTrees[subTree] += src;
-	//			else
-	//				subTrees[subTree] = {src};
-	//				
-	//			println(subTree);
-	//			println(src);
-	//				
-	//			//if (getName(subTree) == "block") {
-	//			//	if (list[node] statements := subTree[0]){
-	//			//		for (index <- [1..size(statements) + 1]) {
-	//			//			Statement blockTree = \block(statements[index..]);	
-	//			//			if (blockTree in subTrees)
-	//			//				subTrees[blockTree] += src;
-	//			//			else
-	//			//				subTrees[blockTree] = {src};				
-	//			//		}
-	//			//	}
-	//			//}
-	//		}
-	//	}
+	
+	//for (subTree <- subTrees, size(subTrees[subTree]) == 1) {
+	//	println(subTree);
+	//	println("@ <subTrees[subTree]>");
 	//}
-	
-	//println(subTrees);
-	
 	subTrees = (key: subTrees[key] | key <- subTrees, size(subTrees[key]) > 1);
 	
-	subTrees = filterTreeSubsumption(toList(subTrees), range(subTrees));
+
+
+	mergedTrees = mergeTreeOverlap(toList(subTrees));
+	while (size(mergedTrees) < size(subTrees)) {
+		subTrees = mergedTrees;
+		mergedTrees = mergeTreeOverlap(toList(subTrees));
+	}
 	
+	//subTrees = filterTreeSubsumption(toList(subTrees), range(subTrees));
+	
+	int count_clone_class = 0;
 	for (subTree <- subTrees) {
 		if (|unknown:///| notin subTrees[subTree], subTrees[subTree] != {})
-			println("<subTree> @ <subTrees[subTree]>");
+			//println(subTree);
+			println("Clone: ");
+			println("<subTrees[subTree]>");
 			println("---");
+			
+			count_clone_class += 1;
 	}
+	
+	println("Number of clone classes: <count_clone_class>");
 	
 }
 
