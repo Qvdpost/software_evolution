@@ -186,40 +186,27 @@ tuple[node tree, set[loc] locs]mergeTrees(tuple[node tree, set[loc] locs] a, tup
 map[node, set[loc]] mergeTreeOverlap(list[tuple[node tree, set[loc] locs]] pairs) {
 	if (isEmpty(pairs))
 		return ();
-	//println(size(pairs));
+
 	tuple[node tree, set[loc] locs] pair = head(pairs);
 	
-	pairs = tail(pairs);
-	
-	set[set[loc]] others = {others.locs | tuple[node tree, set[loc] locs] others <- pairs};
-	
-	list[tuple[node tree, set[loc] locs]] overlap_pairs = [];
+	set[set[loc]] others = {others.locs | tuple[node tree, set[loc] locs] others <- tail(pairs)};
 	
 	set[loc] overlap = checkOverlap(pair, others);
 	if (overlap == {})
-		return (pair.tree: pair.locs) + mergeTreeOverlap(pairs);
+		return (pair.tree: pair.locs) + mergeTreeOverlap(tail(pairs));
 	
-	while (overlap != {}) {
-		for (target_pair <- pairs) {
-			if (target_pair[1] == overlap) {
-				overlap_pairs += target_pair;
-				break;
-			}
+	tuple[node tree, set[loc] locs] overlap_pair;
+	for (target_pair <- tail(pairs)) {
+		
+		if (target_pair[1] == overlap) {
+			overlap_pair = target_pair;
+			break;
 		}
-		//pairs -= overlap_pairs;
-		//others = {others.locs | tuple[node tree, set[loc] locs] others <- pairs};
-		others -= {overlap};
-		overlap = checkOverlap(pair, others);
-	}
-	
-	list[tuple[node tree, set[loc] locs]] merged_pairs = [];
-	for (overlap_pair <- overlap_pairs) {
-		merged_pairs += mergeTrees(pair, overlap_pair);
-	
 	}
 
+	tuple[node tree, set[loc] locs] merged_pair = mergeTrees(pair, overlap_pair);
 
-	return mergeTreeOverlap(pairs + merged_pairs - overlap_pairs);
+	return mergeTreeOverlap(tail(pairs) - overlap_pair + <merged_pair.tree, merged_pair.locs>);
 }
 
 
